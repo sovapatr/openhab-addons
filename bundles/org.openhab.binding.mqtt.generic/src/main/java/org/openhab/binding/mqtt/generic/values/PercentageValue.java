@@ -55,6 +55,7 @@ public class PercentageValue extends Value {
     private final BigDecimal stepPercent;
     private final @Nullable String onValue;
     private final @Nullable String offValue;
+    private boolean sendOnValue = false;
 
     public PercentageValue(@Nullable BigDecimal min, @Nullable BigDecimal max, @Nullable BigDecimal step,
             @Nullable String onValue, @Nullable String offValue) {
@@ -74,6 +75,7 @@ public class PercentageValue extends Value {
 
     @Override
     public void update(Command command) throws IllegalArgumentException {
+        sendOnValue = false;
         PercentType oldvalue = (state == UnDefType.UNDEF) ? new PercentType() : (PercentType) state;
         // Nothing do to -> We have received a percentage
         if (command instanceof PercentType) {
@@ -107,6 +109,7 @@ public class PercentageValue extends Value {
                // On/Off equals 100 or 0 percent
         if (command instanceof OnOffType) {
             state = ((OnOffType) command) == OnOffType.ON ? PercentType.HUNDRED : PercentType.ZERO;
+            sendOnValue = ((OnOffType) command == OnOffType.ON && onValue != null);     
         } else//
               // Increase or decrease by "step"
         if (command instanceof UpDownType) {
@@ -135,21 +138,27 @@ public class PercentageValue extends Value {
 
     @Override
     public String getMQTTpublishValue(@Nullable String pattern) {
-        if (state == UnDefType.UNDEF) {
-            return "";
-        }
-        // Formula: From percentage to custom min/max: value*span/100+min
-        // Calculation need to happen with big decimals to either return a straight integer or a decimal depending on
-        // the value.
-        BigDecimal value = ((PercentType) state).toBigDecimal().multiply(span).divide(HUNDRED, MathContext.DECIMAL128)
-                .add(min).stripTrailingZeros();
+        String payload = "";
+        if (state != UnDefType.UNDEF) {
+            if (state == PercentType.ZERO && offValue != null) {
+                payload = String.valueOf(offValue);
+            } else if (sendOnValue == true) {
+                payload = String.valueOf(onValue);
+            } else {
+                // Formula: From percentage to custom min/max: value*span/100+min
+                // Calculation need to happen with big decimals to either return a straight integer or a decimal depending on
+                // the value.
+                BigDecimal value = ((PercentType) state).toBigDecimal().multiply(span).divide(HUNDRED, MathContext.DECIMAL128)
+                    .add(min).stripTrailingZeros();
 
-        String formatPattern = pattern;
-        if (formatPattern == null) {
-            formatPattern = "%s";
+                String formatPattern = pattern;
+                if (formatPattern == null) {
+                    formatPattern = "%s";
+                }
+                payload = new DecimalType(value).format(formatPattern);
+            }
         }
-
-        return new DecimalType(value).format(formatPattern);
+        return payload;
     }
 
     @Override
